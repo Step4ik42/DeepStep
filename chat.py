@@ -1,6 +1,27 @@
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackContext
 import sys
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
+
+model = AutoModelForCausalLM.from_pretrained(
+    "deepseek-ai/deepseek-coder-6.7b-instruct",
+    trust_remote_code=True,
+    torch_dtype=torch.bfloat16,
+    low_cpu_mem_usage=True,
+    device_map="mps"  # Automatically uses GPU if available
+)
+tokenizer = AutoTokenizer.from_pretrained(
+    "deepseek-ai/deepseek-coder-6.7b-instruct",
+    trust_remote_code=True
+)
+
+# Создать pipeline
+pipe = pipeline(
+    "text-generation",
+    model=model,
+    tokenizer=tokenizer,
+)
 
 # Прочитать токен telegramm
 print ('BOT_TOKEN', sys.argv[1])
@@ -44,8 +65,27 @@ async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if len(user_message.split()) >= 256:
         bot_answer = "Too Long question. Keep it short!"
     else:
-        bot_answer = "Test message"
-    print(bot_answer)
+        bot_messages = [
+            {"role": "user", "content": user_message},
+        ]
+
+        prompt = tokenizer.apply_chat_template(
+            bot_messages,
+            tokenize=False,
+            add_generation_prompt=True
+        )
+
+        outputs = pipe(
+            prompt,
+            max_new_tokens=512,
+            temperature=1,  # Меньшее значение
+            do_sample=True,
+            return_full_text=False,  # Исключает ввод запроса в ответ
+            eos_token_id=tokenizer.eos_token_id
+        )
+
+        bot_answer = outputs[0]["generated_text"]
+        print(bot_answer)
     await update.message.reply_text(bot_answer)
 
 
